@@ -1,0 +1,558 @@
+﻿@page "/sensors"
+@using System.Net.Http.Json
+@using System.Net.Http.Headers
+@using Microsoft.AspNetCore.Components.Forms
+@inject HttpClient Http
+
+<PageTitle>Sensor Data Ingestion</PageTitle>
+
+<div class="page-container">
+    <div class="page-header">
+        <div>
+            <a href="/" class="back-link">← Back to Gateway</a>
+            <h1>Sensor Data Ingestion & Telemetry</h1>
+        </div>
+    </div>
+
+    <!-- Network Health Heartbeat -->
+    <div class="heartbeat-widget @(HealthPercentage < 70 ? "warning" : "")">
+        <div class="pulse-dot" style="animation-duration:@(PulseDurationSeconds)s"></div>
+        <div class="heartbeat-info">
+            <strong>Network Health Heartbeat</strong>
+            <p>@ValidatedCount / @SensorList.Count sensors validated · <span class="health-percent">@HealthPercentage%</span></p>
+        </div>
+    </div>
+
+    <!-- Registration Card -->
+    <div class="card">
+        <h2>Register a New Sensor</h2>
+        <EditForm Model="@NewSensor" OnValidSubmit="RegisterSensorAsync" class="registration-form">
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Device MAC Address</label>
+                    <input @bind="NewSensor.MacAddress" placeholder="e.g. AA:BB:CC:00:11:22" />
+                </div>
+                <div class="form-group">
+                    <label>Deployment Location</label>
+                    <input @bind="NewSensor.DeploymentLocation" placeholder="Facility A > Zone 1 > Sub-Zone B" />
+                </div>
+                <div class="form-group">
+                    <label>Sensor Category</label>
+                    <select @bind="NewSensor.Category">
+                        <option value="Environmental">Environmental</option>
+                        <option value="PowerConsumption">Power Consumption</option>
+                        <option value="Actuator">Actuator</option>
+                    </select>
+                </div>
+            </div>
+            <button type="submit" class="btn-primary">Register Sensor</button>
+        </EditForm>
+
+        @if (!string.IsNullOrEmpty(StatusMessage))
+        {
+            <div class="status-message">@StatusMessage</div>
+        }
+    </div>
+
+    <!-- Registered Sensors Table -->
+    <div class="card">
+        <h2>Registered Sensors</h2>
+        @if (SensorList.Count == 0)
+        {
+            <p class="empty-state">No sensors registered yet. Add one above.</p>
+        }
+        else
+        {
+            <div class="table-wrapper">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>MAC Address</th>
+                            <th>Location</th>
+                            <th>Category</th>
+                            <th>Validated</th>
+                            <th>Attach File</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var sensor in SensorList)
+                        {
+                            <tr>
+                                <td><code>@sensor.MacAddress</code></td>
+                                <td>@sensor.DeploymentLocation</td>
+                                <td><span class="category-tag">@sensor.Category</span></td>
+                                <td>
+                                    @if (sensor.LocationValidated)
+                                    {
+                                        <span class="badge valid">Valid</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge invalid">Invalid</span>
+                                    }
+                                </td>
+                                <td>
+                                    <InputFile OnChange="@(e => UploadFileAsync(e, sensor.Id))" class="file-input" />
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+
+    <!-- Telemetry Demos -->
+    <div class="card">
+        <h2>Telemetry Simulation & Demos</h2>
+        <div class="demo-buttons">
+            <button @onclick="SeedTelemetryAsync" class="btn-secondary">Seed Mock Telemetry (Jagged Arrays)</button>
+            <button @onclick="LoadMixedDemoAsync" class="btn-secondary">Generic TelemetryPacket&lt;T&gt; Demo</button>
+            <button @onclick="LoadPowerAggregateAsync" class="btn-secondary">Power Aggregate (Operator Overloading)</button>
+        </div>
+
+        @if (SeedResult is not null)
+        {
+            <div class="demo-result">
+                <p><strong>Total readings:</strong> @SeedResult.totalReadings</p>
+                <p><strong>Batch sizes:</strong> @string.Join(", ", SeedResult.batchSizes)</p>
+                <ul>
+                    @foreach (var line in SeedResult.sample)
+                    {
+                        <li>@line</li>
+                    }
+                </ul>
+            </div>
+        }
+
+        @if (MixedDemoResult is not null)
+        {
+            <div class="demo-result">
+                <ul>
+                    <li>@MixedDemoResult.floatPacket</li>
+                    <li>@MixedDemoResult.intPacket</li>
+                    <li>@MixedDemoResult.boolPacket</li>
+                </ul>
+            </div>
+        }
+
+        @if (AggregateResult is not null)
+        {
+            <div class="demo-result">
+                <ul>
+                    <li>Meter 1: @AggregateResult.meter1</li>
+                    <li>Meter 2: @AggregateResult.meter2</li>
+                    <li>Aggregate (Meter1 + Meter2): @AggregateResult.aggregate</li>
+                    <li>Delta (Meter1 - Meter2): @AggregateResult.delta</li>
+                    <li>Is Meter 1 higher: @AggregateResult.meter1IsHigher</li>
+                </ul>
+            </div>
+        }
+    </div>
+</div>
+
+<style>
+    .page-container {
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: 24px 20px 60px;
+    }
+
+    .page-header {
+        margin-bottom: 28px;
+    }
+
+    .back-link {
+        display: inline-block;
+        color: #3182ce;
+        text-decoration: none;
+        font-size: 0.95rem;
+        margin-bottom: 8px;
+    }
+
+        .back-link:hover {
+            text-decoration: underline;
+        }
+
+    .page-header h1 {
+        font-size: 1.9rem;
+        font-weight: 700;
+        color: #1a365d;
+        margin: 0;
+    }
+
+    /* Heartbeat */
+    .heartbeat-widget {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        padding: 18px 22px;
+        border-radius: 12px;
+        background: linear-gradient(135deg, #ebf8ff 0%, #bee3f8 100%);
+        border: 1px solid #90cdf4;
+        margin-bottom: 28px;
+        box-shadow: 0 2px 4px rgba(49, 130, 206, 0.1);
+    }
+
+        .heartbeat-widget.warning {
+            background: linear-gradient(135deg, #fff5f5 0%, #fed7d7 100%);
+            border-color: #fc8181;
+        }
+
+    .pulse-dot {
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        background: #3182ce;
+        animation-name: pulse;
+        animation-timing-function: ease-in-out;
+        animation-iteration-count: infinite;
+        flex-shrink: 0;
+    }
+
+    .heartbeat-widget.warning .pulse-dot {
+        background: #e53e3e;
+    }
+
+    @@keyframes pulse {
+        0% {
+            transform: scale(0.85);
+            opacity: 0.7;
+        }
+
+        50% {
+            transform: scale(1.25);
+            opacity: 1;
+        }
+
+        100% {
+            transform: scale(0.85);
+            opacity: 0.7;
+        }
+    }
+
+    .heartbeat-info strong {
+        display: block;
+        font-size: 1.05rem;
+        color: #2b6cb0;
+    }
+
+    .heartbeat-info p {
+        margin: 4px 0 0;
+        color: #4a5568;
+        font-size: 0.95rem;
+    }
+
+    .health-percent {
+        font-weight: 700;
+        color: #2b6cb0;
+    }
+
+    /* Cards */
+    .card {
+        background: white;
+        border-radius: 12px;
+        padding: 28px;
+        margin-bottom: 28px;
+        border: 1px solid #e2e8f0;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+    }
+
+        .card h2 {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: #2d3748;
+            margin: 0 0 20px;
+        }
+
+    /* Form */
+    .registration-form {
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+    }
+
+    .form-row {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 18px;
+    }
+
+    .form-group label {
+        display: block;
+        font-size: 0.9rem;
+        font-weight: 500;
+        color: #4a5568;
+        margin-bottom: 6px;
+    }
+
+    .form-group input,
+    .form-group select {
+        width: 100%;
+        padding: 10px 12px;
+        border: 1px solid #cbd5e0;
+        border-radius: 8px;
+        font-size: 0.95rem;
+        transition: border-color 0.2s;
+    }
+
+        .form-group input:focus,
+        .form-group select:focus {
+            outline: none;
+            border-color: #3182ce;
+            box-shadow: 0 0 0 3px rgba(49, 130, 206, 0.15);
+        }
+
+    .btn-primary {
+        align-self: flex-start;
+        background: #3182ce;
+        color: white;
+        border: none;
+        padding: 11px 24px;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: 0.95rem;
+        cursor: pointer;
+        transition: background 0.2s;
+    }
+
+        .btn-primary:hover {
+            background: #2b6cb0;
+        }
+
+    .btn-secondary {
+        background: #edf2f7;
+        color: #2d3748;
+        border: 1px solid #e2e8f0;
+        padding: 10px 18px;
+        border-radius: 8px;
+        font-weight: 500;
+        font-size: 0.9rem;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+        .btn-secondary:hover {
+            background: #e2e8f0;
+        }
+
+    .status-message {
+        margin-top: 16px;
+        padding: 12px 16px;
+        background: #c6f6d5;
+        color: #276749;
+        border-radius: 8px;
+        font-weight: 500;
+    }
+
+    /* Table */
+    .table-wrapper {
+        overflow-x: auto;
+    }
+
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.95rem;
+    }
+
+    th {
+        text-align: left;
+        padding: 12px 14px;
+        background: #f7fafc;
+        color: #4a5568;
+        font-weight: 600;
+        border-bottom: 2px solid #e2e8f0;
+    }
+
+    td {
+        padding: 12px 14px;
+        border-bottom: 1px solid #edf2f7;
+        vertical-align: middle;
+    }
+
+    tr:hover td {
+        background: #f7fafc;
+    }
+
+    code {
+        background: #edf2f7;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 0.88rem;
+    }
+
+    .category-tag {
+        background: #ebf8ff;
+        color: #2b6cb0;
+        padding: 3px 10px;
+        border-radius: 12px;
+        font-size: 0.85rem;
+        font-weight: 500;
+    }
+
+    .badge {
+        display: inline-block;
+        padding: 3px 10px;
+        border-radius: 12px;
+        font-size: 0.82rem;
+        font-weight: 600;
+    }
+
+        .badge.valid {
+            background: #c6f6d5;
+            color: #276749;
+        }
+
+        .badge.invalid {
+            background: #fed7d7;
+            color: #c53030;
+        }
+
+    .empty-state {
+        color: #a0aec0;
+        font-style: italic;
+        padding: 12px 0;
+    }
+
+    /* Demo section */
+    .demo-buttons {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-bottom: 20px;
+    }
+
+    .demo-result {
+        background: #f7fafc;
+        border-radius: 8px;
+        padding: 16px 20px;
+        margin-top: 12px;
+        border-left: 4px solid #3182ce;
+    }
+
+        .demo-result ul {
+            margin: 8px 0 0;
+            padding-left: 20px;
+        }
+
+        .demo-result li {
+            margin-bottom: 4px;
+        }
+
+    .file-input {
+        font-size: 0.85rem;
+    }
+</style>
+
+@code {
+    private List<SensorRegistrationDto> SensorList = new();
+    private SensorRegistrationDto NewSensor = new();
+    private string? StatusMessage;
+    private SeedResultDto? SeedResult;
+    private AggregateResultDto? AggregateResult;
+    private MixedDemoDto? MixedDemoResult;
+
+    private int ValidatedCount => SensorList.Count(s => s.LocationValidated);
+    private int HealthPercentage => SensorList.Count == 0 ? 0 : (ValidatedCount * 100) / SensorList.Count;
+
+    private double PulseDurationSeconds => SensorList.Count == 0 ? 1.5 : Math.Max(0.4, 1.6 - (HealthPercentage / 100.0));
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshSensorsAsync();
+    }
+
+    private async Task RefreshSensorsAsync()
+    {
+        try
+        {
+            var result = await Http.GetFromJsonAsync<List<SensorRegistrationDto>>("api/sensors");
+            SensorList = result ?? new();
+        }
+        catch
+        {
+            SensorList = new();
+        }
+    }
+
+    private async Task RegisterSensorAsync()
+    {
+        var response = await Http.PostAsJsonAsync("api/sensors/register", NewSensor);
+        if (response.IsSuccessStatusCode)
+        {
+            StatusMessage = "Sensor registered successfully.";
+            NewSensor = new();
+            await RefreshSensorsAsync();
+        }
+        else
+        {
+            StatusMessage = "Failed to register sensor.";
+        }
+    }
+
+    private async Task UploadFileAsync(InputFileChangeEventArgs e, string sensorId)
+    {
+        var file = e.File;
+        if (file is null) return;
+
+        using var content = new MultipartFormDataContent();
+        var fileContent = new StreamContent(file.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024));
+        fileContent.Headers.ContentType = new MediaTypeHeaderValue(
+            file.ContentType is { Length: > 0 } ? file.ContentType : "application/octet-stream");
+        content.Add(fileContent, "file", file.Name);
+
+        var response = await Http.PostAsync($"api/sensors/{sensorId}/upload", content);
+        StatusMessage = response.IsSuccessStatusCode
+            ? $"File '{file.Name}' attached successfully."
+            : "File upload failed.";
+        await RefreshSensorsAsync();
+    }
+
+    private async Task SeedTelemetryAsync()
+    {
+        SeedResult = await Http.GetFromJsonAsync<SeedResultDto>("api/telemetry/seed?batches=6&maxSensors=8");
+    }
+
+    private async Task LoadMixedDemoAsync()
+    {
+        MixedDemoResult = await Http.GetFromJsonAsync<MixedDemoDto>("api/telemetry/mixed-demo");
+    }
+
+    private async Task LoadPowerAggregateAsync()
+    {
+        AggregateResult = await Http.GetFromJsonAsync<AggregateResultDto>("api/telemetry/power-aggregate");
+    }
+
+    public class SensorRegistrationDto
+    {
+        public string Id { get; set; } = string.Empty;
+        public string MacAddress { get; set; } = string.Empty;
+        public string DeploymentLocation { get; set; } = string.Empty;
+        public string Category { get; set; } = "Environmental";
+        public bool LocationValidated { get; set; }
+    }
+
+    public class SeedResultDto
+    {
+        public int[] batchSizes { get; set; } = Array.Empty<int>();
+        public int totalReadings { get; set; }
+        public List<string> sample { get; set; } = new();
+    }
+
+    public class MixedDemoDto
+    {
+        public string floatPacket { get; set; } = string.Empty;
+        public string intPacket { get; set; } = string.Empty;
+        public string boolPacket { get; set; } = string.Empty;
+    }
+
+    public class AggregateResultDto
+    {
+        public string meter1 { get; set; } = string.Empty;
+        public string meter2 { get; set; } = string.Empty;
+        public string aggregate { get; set; } = string.Empty;
+        public string delta { get; set; } = string.Empty;
+        public bool meter1IsHigher { get; set; }
+    }
+}
